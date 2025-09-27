@@ -25,6 +25,72 @@ function run_command_with_stderr(command)
     end
 end
 
+function run_command_realtime(command)
+    if is_windows() then
+        return io.popen('cmd /c "' .. command .. '" 2>&1', 'r')
+    else
+        return io.popen('stdbuf -oL -eL ' .. command .. " 2>&1", 'r')
+    end
+end
+
+function run_command_visible(command)
+    if is_windows() then
+        local temp_dir = os.getenv("TEMP") or os.getenv("TMP") or "."
+        local temp_bat = temp_dir .. "\\yt_dlp_temp_" .. os.time() .. ".bat"
+        local temp_result = temp_dir .. "\\yt_dlp_result_" .. os.time() .. ".txt"
+        
+        local file = io.open(temp_bat, "w")
+        if not file then
+            return false
+        end
+        
+        file:write('@echo off\n')
+        file:write('title yt-dlp Download Progress\n')
+        file:write('color 0A\n')
+        file:write('echo ========================================\n')
+        file:write('echo    YouTube Audio Downloader\n')
+        file:write('echo ========================================\n')
+        file:write('echo.\n')
+        file:write('echo Starting download...\n')
+        file:write('echo.\n')
+        file:write(command .. '\n')
+        file:write('set exit_code=%errorlevel%\n')
+        file:write('echo %exit_code% > "' .. temp_result .. '"\n')
+        file:write('echo.\n')
+        file:write('echo ========================================\n')
+        file:write('if %exit_code% equ 0 (\n')
+        file:write('    echo Download completed successfully!\n')
+        file:write('    echo Window will close in 3 seconds...\n')
+        file:write('    timeout /t 3 /nobreak >nul\n')
+        file:write(') else (\n')
+        file:write('    echo Download failed with exit code: %exit_code%\n')
+        file:write('    echo Window will close in 5 seconds...\n')
+        file:write('    timeout /t 5 /nobreak >nul\n')
+        file:write(')\n')
+        file:write('exit /b %exit_code%\n')
+        file:close()
+        
+        local result = os.execute('"' .. temp_bat .. '"')
+        os.remove(temp_bat)
+        
+        -- Read the exit code from the result file
+        local exit_code = 1
+        local result_file = io.open(temp_result, "r")
+        if result_file then
+            local code_str = result_file:read("*l")
+            if code_str then
+                exit_code = tonumber(code_str) or 1
+            end
+            result_file:close()
+            os.remove(temp_result)
+        end
+        
+        return exit_code == 0
+    else
+        return io.popen(command .. " 2>&1", 'r')
+    end
+end
+
 function validate_yt_dlp()
     local yt_dlp_path = find_yt_dlp()
     
@@ -66,49 +132,14 @@ function yt_dlp(args)
     local command = yt_dlp_path .. " " .. args
     log_info("Executing yt-dlp: " .. command)
     
-    local handle = run_command_with_stderr(command)
-    if not handle then
-        return nil, "Could not execute yt-dlp command"
+    log_info("Opening yt-dlp in visible command window...")
+    local success = run_command_visible(command)
+    if success then
+        log_success("yt-dlp download completed successfully!")
+        return "Download completed in visible window", nil
+    else
+        return nil, "yt-dlp download failed in visible window"
     end
-    
-    local output = handle:read("*a")
-    local success, exit_type, exit_code = handle:close()
-    
-    log_info("yt-dlp output:")
-    reaper.ShowConsoleMsg(output)
-    
-    if not success or exit_code ~= 0 then
-        local error_msg = "yt-dlp failed with exit code: " .. tostring(exit_code)
-        
-        if output and output:match("ERROR") then
-            local error_line = output:match("ERROR: ([^\n\r]+)")
-            if error_line then
-                error_msg = error_msg .. "\nError details: " .. error_line
-            end
-        end
-        
-        if output and output:match("WARNING") then
-            local warnings = {}
-            for warning in output:gmatch("WARNING: ([^\n\r]+)") do
-                table.insert(warnings, warning)
-            end
-            if #warnings > 0 then
-                error_msg = error_msg .. "\nWarnings: " .. table.concat(warnings, "; ")
-            end
-        end
-        
-        if exit_code == -1 then
-            error_msg = error_msg .. "\n\nCommon solutions for exit code -1:\n" ..
-                       "1. Update yt-dlp: pip install --upgrade yt-dlp\n" ..
-                       "2. Check your internet connection\n" ..
-                       "3. Verify the YouTube URL is valid\n" ..
-                       "4. Try running yt-dlp manually from command line"
-        end
-        
-        return nil, error_msg
-    end
-    
-    return output, nil
 end
 
 function log_msg(msg)
@@ -334,7 +365,7 @@ function download_youtube_audio(url)
     log_info("Download directory: " .. project_dir)
     log_info("Using random suffix: " .. random_suffix)
     
-    local args = string.format('-x --audio-format wav --audio-quality 0 --no-playlist -o "%s"', temp_template)
+    local args = string.format('-x --audio-format wav --audio-quality 0 --no-playlist -v -o "%s"', temp_template)
     
     local ffmpeg_path = ffmpeg()
     if ffmpeg_path then
@@ -393,11 +424,15 @@ function download_youtube_audio(url)
         if is_windows() then
             local handle = run_command_silent('dir /b /o-d "' .. project_dir .. '\\*.wav"')
             if handle then
-                local found_file = handle:read("*a")
+                local all_files = handle:read("*a")
                 handle:close()
-                if found_file and found_file:match("%S") then
-                    filename = project_dir .. "\\" .. found_file:gsub("^%s+", ""):gsub("%s+$", "")
-                    log_info("Found most recent WAV file: " .. filename)
+                if all_files and all_files:match("%S") then
+                    -- Get the first (most recent) file from the list
+                    local first_file = all_files:match("([^\r\n]+)")
+                    if first_file then
+                        filename = project_dir .. "\\" .. first_file:gsub("^%s+", ""):gsub("%s+$", "")
+                        log_info("Found most recent WAV file: " .. filename)
+                    end
                 end
             end
         else
@@ -458,7 +493,9 @@ function download_youtube_audio(url)
                     local files = handle:read("*a")
                     handle:close()
                     log_info("Files matching 'Pantera' in directory:")
-                    reaper.ShowConsoleMsg(files)
+                    for file in files:gmatch("[^\r\n]+") do
+                        reaper.ShowConsoleMsg("  " .. file .. "\n")
+                    end
                 end
                 
                 local handle2 = run_command_silent('dir /b "' .. project_dir .. '\\*.wav"')
@@ -466,7 +503,9 @@ function download_youtube_audio(url)
                     local files = handle2:read("*a")
                     handle2:close()
                     log_info("All WAV files in directory:")
-                    reaper.ShowConsoleMsg(files)
+                    for file in files:gmatch("[^\r\n]+") do
+                        reaper.ShowConsoleMsg("  " .. file .. "\n")
+                    end
                 end
             else
                 local handle = io.popen('ls -la "' .. project_dir .. '"/*Pantera* 2>/dev/null')

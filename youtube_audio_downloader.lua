@@ -46,7 +46,6 @@ function run_command_visible(command)
         
         file:write('@echo off\n')
         file:write('title yt-dlp Download Progress\n')
-        file:write('color 0A\n')
         file:write('echo ========================================\n')
         file:write('echo    YouTube Audio Downloader\n')
         file:write('echo ========================================\n')
@@ -58,15 +57,15 @@ function run_command_visible(command)
         file:write('echo %exit_code% > "' .. temp_result .. '"\n')
         file:write('echo.\n')
         file:write('echo ========================================\n')
-        file:write('if %exit_code% equ 0 (\n')
-        file:write('    echo Download completed successfully!\n')
-        file:write('    echo Window will close in 3 seconds...\n')
-        file:write('    timeout /t 3 /nobreak >nul\n')
-        file:write(') else (\n')
-        file:write('    echo Download failed with exit code: %exit_code%\n')
-        file:write('    echo Window will close in 5 seconds...\n')
-        file:write('    timeout /t 5 /nobreak >nul\n')
-        file:write(')\n')
+        -- file:write('if %exit_code% equ 0 (\n')
+        -- file:write('    echo Download completed successfully!\n')
+        -- file:write('    echo Window will close in 3 seconds...\n')
+        -- file:write('    timeout /t 3 /nobreak >nul\n')
+        -- file:write(') else (\n')
+        -- file:write('    echo Download failed with exit code: %exit_code%\n')
+        -- file:write('    echo Window will close in 5 seconds...\n')
+        -- file:write('    timeout /t 5 /nobreak >nul\n')
+        -- file:write(')\n')
         file:write('exit /b %exit_code%\n')
         file:close()
         
@@ -142,31 +141,46 @@ function yt_dlp(args)
     end
 end
 
+-- Set to false to disable console logging (prevents auto-opening console)
+local ENABLE_CONSOLE_LOGGING = false
+
 function log_msg(msg)
-    local timestamp = os.date("[%Y-%m-%d %H:%M:%S] ")
-    reaper.ShowConsoleMsg(timestamp .. msg)
+    if ENABLE_CONSOLE_LOGGING then
+        local timestamp = os.date("[%Y-%m-%d %H:%M:%S] ")
+        reaper.ShowConsoleMsg(timestamp .. msg)
+    end
 end
 
 function log_error(msg)
-    reaper.ShowConsoleMsg("ERROR: " .. msg .. "\n")
+    if ENABLE_CONSOLE_LOGGING then
+        reaper.ShowConsoleMsg("ERROR: " .. msg .. "\n")
+    end
 end
 
 function log_warning(msg)
-    reaper.ShowConsoleMsg("WARNING: " .. msg .. "\n")
+    if ENABLE_CONSOLE_LOGGING then
+        reaper.ShowConsoleMsg("WARNING: " .. msg .. "\n")
+    end
 end
 
 function log_info(msg)
-    reaper.ShowConsoleMsg("INFO: " .. msg .. "\n")
+    if ENABLE_CONSOLE_LOGGING then
+        reaper.ShowConsoleMsg("INFO: " .. msg .. "\n")
+    end
 end
 
 function log_success(msg)
-    reaper.ShowConsoleMsg("SUCCESS: " .. msg .. "\n")
+    if ENABLE_CONSOLE_LOGGING then
+        reaper.ShowConsoleMsg("SUCCESS: " .. msg .. "\n")
+    end
 end
 
 function clear_console()
-    reaper.ClearConsole()
-    reaper.ShowConsoleMsg("=== YouTube Downloader Console ===\n")
-    reaper.ShowConsoleMsg("===================================\n")
+    if ENABLE_CONSOLE_LOGGING then
+        reaper.ClearConsole()
+        reaper.ShowConsoleMsg("=== YouTube Downloader Console ===\n")
+        reaper.ShowConsoleMsg("===================================\n")
+    end
 end
 
 function find_yt_dlp()

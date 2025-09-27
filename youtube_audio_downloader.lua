@@ -1,6 +1,10 @@
 -- YouTube Audio Downloader ReaScript
 -- Downloads audio from YouTube URL and adds it as a new track in Reaper
 
+-- Configuration
+local ENABLE_CONSOLE_LOGGING = false
+
+-- Utility Functions
 function is_windows()
     return package.config:sub(1,1) == '\\'
 end
@@ -9,6 +13,7 @@ function get_path_separator()
     return is_windows() and '\\' or '/'
 end
 
+-- Command Execution Functions
 function run_command_silent(command)
     if is_windows() then
         return io.popen('cmd /c "' .. command .. '" 2>nul', 'r')
@@ -25,14 +30,8 @@ function run_command_with_stderr(command)
     end
 end
 
-function run_command_realtime(command)
-    if is_windows() then
-        return io.popen('cmd /c "' .. command .. '" 2>&1', 'r')
-    else
-        return io.popen('stdbuf -oL -eL ' .. command .. " 2>&1", 'r')
-    end
-end
 
+-- Visible Command Window Execution (Windows only)
 function run_command_visible(command)
     if is_windows() then
         local temp_dir = os.getenv("TEMP") or os.getenv("TMP") or "."
@@ -57,15 +56,6 @@ function run_command_visible(command)
         file:write('echo %exit_code% > "' .. temp_result .. '"\n')
         file:write('echo.\n')
         file:write('echo ========================================\n')
-        -- file:write('if %exit_code% equ 0 (\n')
-        -- file:write('    echo Download completed successfully!\n')
-        -- file:write('    echo Window will close in 3 seconds...\n')
-        -- file:write('    timeout /t 3 /nobreak >nul\n')
-        -- file:write(') else (\n')
-        -- file:write('    echo Download failed with exit code: %exit_code%\n')
-        -- file:write('    echo Window will close in 5 seconds...\n')
-        -- file:write('    timeout /t 5 /nobreak >nul\n')
-        -- file:write(')\n')
         file:write('exit /b %exit_code%\n')
         file:close()
         
@@ -90,6 +80,7 @@ function run_command_visible(command)
     end
 end
 
+-- yt-dlp Validation and Execution
 function validate_yt_dlp()
     local yt_dlp_path = find_yt_dlp()
     
@@ -141,9 +132,8 @@ function yt_dlp(args)
     end
 end
 
--- Set to false to disable console logging (prevents auto-opening console)
-local ENABLE_CONSOLE_LOGGING = false
 
+-- Logging Functions
 function log_msg(msg)
     if ENABLE_CONSOLE_LOGGING then
         local timestamp = os.date("[%Y-%m-%d %H:%M:%S] ")
@@ -183,34 +173,56 @@ function clear_console()
     end
 end
 
-function find_yt_dlp()
-    local common_paths = {}
+-- Executable Path Finding
+function find_executable(name, custom_paths)
+    local common_paths = custom_paths or {}
     
     if is_windows() then
         local home = os.getenv("USERPROFILE") or os.getenv("HOME")
         local program_files = os.getenv("PROGRAMFILES") or "C:\\Program Files"
         local program_files_x86 = os.getenv("PROGRAMFILES(X86)") or "C:\\Program Files (x86)"
         
-        common_paths = {
-            home .. "\\scoop\\shims\\yt-dlp.exe",
-            "yt-dlp.exe",
-            "yt-dlp",
-            home .. "\\AppData\\Local\\Programs\\Python\\Python*\\Scripts\\yt-dlp.exe",
-            home .. "\\AppData\\Local\\Programs\\Python\\Scripts\\yt-dlp.exe",
-            program_files .. "\\yt-dlp\\yt-dlp.exe",
-            program_files_x86 .. "\\yt-dlp\\yt-dlp.exe",
-            "C:\\yt-dlp\\yt-dlp.exe",
-            "C:\\Python*\\Scripts\\yt-dlp.exe"
-        }
+        if name == "yt-dlp" then
+            common_paths = {
+                home .. "\\scoop\\shims\\yt-dlp.exe",
+                "yt-dlp.exe",
+                "yt-dlp",
+                home .. "\\AppData\\Local\\Programs\\Python\\Python*\\Scripts\\yt-dlp.exe",
+                home .. "\\AppData\\Local\\Programs\\Python\\Scripts\\yt-dlp.exe",
+                program_files .. "\\yt-dlp\\yt-dlp.exe",
+                program_files_x86 .. "\\yt-dlp\\yt-dlp.exe",
+                "C:\\yt-dlp\\yt-dlp.exe",
+                "C:\\Python*\\Scripts\\yt-dlp.exe"
+            }
+        elseif name == "ffmpeg" then
+            common_paths = {
+                home .. "\\scoop\\shims\\ffmpeg.exe",
+                "ffmpeg.exe",
+                "ffmpeg",
+                home .. "\\AppData\\Local\\Programs\\ffmpeg\\bin\\ffmpeg.exe",
+                program_files .. "\\ffmpeg\\bin\\ffmpeg.exe",
+                program_files_x86 .. "\\ffmpeg\\bin\\ffmpeg.exe",
+                "C:\\ffmpeg\\bin\\ffmpeg.exe"
+            }
+        end
     else
         local home = os.getenv("HOME")
-        common_paths = {
-            "yt-dlp",
-            "/usr/local/bin/yt-dlp",
-            "/opt/homebrew/bin/yt-dlp",
-            "/usr/bin/yt-dlp",
-            home .. "/.local/bin/yt-dlp"
-        }
+        if name == "yt-dlp" then
+            common_paths = {
+                "yt-dlp",
+                "/usr/local/bin/yt-dlp",
+                "/opt/homebrew/bin/yt-dlp",
+                "/usr/bin/yt-dlp",
+                home .. "/.local/bin/yt-dlp"
+            }
+        elseif name == "ffmpeg" then
+            common_paths = {
+                "ffmpeg",
+                "/usr/local/bin/ffmpeg",
+                "/opt/homebrew/bin/ffmpeg",
+                "/usr/bin/ffmpeg"
+            }
+        end
     end
     
     for _, path in ipairs(common_paths) do
@@ -242,7 +254,7 @@ function find_yt_dlp()
     end
     
     if is_windows() then
-        local where_handle = run_command_silent('where yt-dlp')
+        local where_handle = run_command_silent('where ' .. name)
         if where_handle then
             local where_result = where_handle:read("*a")
             local success, exit_type, exit_code = where_handle:close()
@@ -251,7 +263,7 @@ function find_yt_dlp()
             end
         end
     else
-        local which_handle = io.popen("which yt-dlp 2>/dev/null")
+        local which_handle = io.popen("which " .. name .. " 2>/dev/null")
         if which_handle then
             local which_result = which_handle:read("*a")
             local success, exit_type, exit_code = which_handle:close()
@@ -262,85 +274,17 @@ function find_yt_dlp()
     end
     
     return nil
+end
+
+function find_yt_dlp()
+    return find_executable("yt-dlp")
 end
 
 function ffmpeg()
-    local common_paths = {}
-    
-    if is_windows() then
-        local home = os.getenv("USERPROFILE") or os.getenv("HOME")
-        local program_files = os.getenv("PROGRAMFILES") or "C:\\Program Files"
-        local program_files_x86 = os.getenv("PROGRAMFILES(X86)") or "C:\\Program Files (x86)"
-        
-        common_paths = {
-            home .. "\\scoop\\shims\\ffmpeg.exe",
-            "ffmpeg.exe",
-            "ffmpeg",
-            home .. "\\AppData\\Local\\Programs\\ffmpeg\\bin\\ffmpeg.exe",
-            program_files .. "\\ffmpeg\\bin\\ffmpeg.exe",
-            program_files_x86 .. "\\ffmpeg\\bin\\ffmpeg.exe",
-            "C:\\ffmpeg\\bin\\ffmpeg.exe"
-        }
-    else
-        common_paths = {
-            "ffmpeg",
-            "/usr/local/bin/ffmpeg",
-            "/opt/homebrew/bin/ffmpeg",
-            "/usr/bin/ffmpeg"
-        }
-    end
-    
-    for _, path in ipairs(common_paths) do
-        if is_windows() then
-            local file = io.open(path, "r")
-            if file then
-                file:close()
-                return path
-            end
-            
-            local handle = run_command_silent('where "' .. path .. '"')
-            if handle then
-                local result = handle:read("*a")
-                local success, exit_type, exit_code = handle:close()
-                if success and exit_code == 0 and result:match("%S") then
-                    return result:gsub("%s+$", "")
-                end
-            end
-        else
-            local handle = io.popen("command -v " .. path .. " 2>/dev/null")
-            if handle then
-                local result = handle:read("*a")
-                local success, exit_type, exit_code = handle:close()
-                if success and exit_code == 0 and result:match("%S") then
-                    return result:gsub("%s+$", "")
-                end
-            end
-        end
-    end
-    
-    if is_windows() then
-        local where_handle = run_command_silent('where ffmpeg')
-        if where_handle then
-            local where_result = where_handle:read("*a")
-            local success, exit_type, exit_code = where_handle:close()
-            if success and exit_code == 0 and where_result:match("%S") then
-                return where_result:gsub("%s+$", "")
-            end
-        end
-    else
-        local which_handle = io.popen("which ffmpeg 2>/dev/null")
-        if which_handle then
-            local which_result = which_handle:read("*a")
-            local success, exit_type, exit_code = which_handle:close()
-            if success and exit_code == 0 and which_result:match("%S") then
-                return which_result:gsub("%s+$", "")
-            end
-        end
-    end
-    
-    return nil
+    return find_executable("ffmpeg")
 end
 
+-- File and Path Utilities
 function sanitize_filename(filename)
     return filename:gsub("[^%w%s%-_%.%(%)]", ""):gsub("%s+", "_")
 end
@@ -369,6 +313,55 @@ function generate_random_string(length)
     return result
 end
 
+function find_audio_file(directory, suffix)
+    if is_windows() then
+        local handle = run_command_silent('dir /b /o-d "' .. directory .. '\\*' .. suffix .. '*.wav"')
+        if handle then
+            local files = handle:read("*a")
+            handle:close()
+            
+            for file in files:gmatch("[^\r\n]+") do
+                if file:match(suffix) then
+                    return directory .. "\\" .. file
+                end
+            end
+        end
+        
+        handle = run_command_silent('dir /b /o-d "' .. directory .. '\\*.wav"')
+        if handle then
+            local all_files = handle:read("*a")
+            handle:close()
+            if all_files and all_files:match("%S") then
+                local first_file = all_files:match("([^\r\n]+)")
+                if first_file then
+                    return directory .. "\\" .. first_file:gsub("^%s+", ""):gsub("%s+$", "")
+                end
+            end
+        end
+    else
+        local handle = io.popen('ls -t "' .. directory .. '"/*' .. suffix .. '*.wav 2>/dev/null | head -1')
+        if handle then
+            local filename = handle:read("*a"):gsub("^%s+", ""):gsub("%s+$", "")
+            handle:close()
+            if filename and filename ~= "" then
+                return filename
+            end
+        end
+        
+        handle = io.popen('ls -t "' .. directory .. '"/*.wav 2>/dev/null | head -1')
+        if handle then
+            local found_file = handle:read("*a")
+            handle:close()
+            if found_file and found_file:match("%S") then
+                return found_file:gsub("^%s+", ""):gsub("%s+$", "")
+            end
+        end
+    end
+    
+    return nil
+end
+
+-- YouTube Download Functions
 function download_youtube_audio(url)
     local project_dir = get_project_directory()
     local path_sep = get_path_separator()
@@ -400,65 +393,16 @@ function download_youtube_audio(url)
         return nil, error_msg
     end
     
-    local filename = nil
+    log_info("Looking for downloaded audio file...")
     
-    log_info("Looking for the most recent WAV file with random suffix...")
-    
-    local project_dir = get_project_directory()
-    if is_windows() then
-        local handle = run_command_silent('dir /b /o-d "' .. project_dir .. '\\*' .. random_suffix .. '*.wav"')
-        if handle then
-            local files = handle:read("*a")
-            handle:close()
-            
-            for file in files:gmatch("[^\r\n]+") do
-                if file:match(random_suffix) then
-                    filename = project_dir .. "\\" .. file
-                    log_success("Found WAV file with random suffix: " .. filename)
-                    break
-                end
-            end
-        end
+    local filename = find_audio_file(project_dir, random_suffix)
+    if filename then
+        log_success("Found WAV file with random suffix: " .. filename)
     else
-        local handle = io.popen('ls -t "' .. project_dir .. '"/*' .. random_suffix .. '*.wav 2>/dev/null | head -1')
-        if handle then
-            filename = handle:read("*a"):gsub("^%s+", ""):gsub("%s+$", "")
-            handle:close()
-            if filename and filename ~= "" then
-                log_success("Found WAV file with random suffix: " .. filename)
-            else
-                filename = nil
-            end
-        end
-    end
-    
-    if not filename then
         log_warning("Could not find WAV file with random suffix, looking for any recent WAV file...")
-        
-        if is_windows() then
-            local handle = run_command_silent('dir /b /o-d "' .. project_dir .. '\\*.wav"')
-            if handle then
-                local all_files = handle:read("*a")
-                handle:close()
-                if all_files and all_files:match("%S") then
-                    -- Get the first (most recent) file from the list
-                    local first_file = all_files:match("([^\r\n]+)")
-                    if first_file then
-                        filename = project_dir .. "\\" .. first_file:gsub("^%s+", ""):gsub("%s+$", "")
-                        log_info("Found most recent WAV file: " .. filename)
-                    end
-                end
-            end
-        else
-            local handle = io.popen('ls -t "' .. project_dir .. '"/*.wav 2>/dev/null | head -1')
-            if handle then
-                local found_file = handle:read("*a")
-                handle:close()
-                if found_file and found_file:match("%S") then
-                    filename = found_file:gsub("^%s+", ""):gsub("%s+$", "")
-                    log_info("Found most recent WAV file: " .. filename)
-                end
-            end
+        filename = find_audio_file(project_dir, "")
+        if filename then
+            log_info("Found most recent WAV file: " .. filename)
         end
     end
     
@@ -473,223 +417,23 @@ function download_youtube_audio(url)
         else
             log_error("File does not exist or is not accessible: " .. filename)
             
-            log_info("Character encoding issue detected. Using PowerShell to get exact filename...")
-            
-            local project_dir = get_project_directory()
-            local handle = run_command_silent('powershell -Command "Get-ChildItem -Path \'' .. project_dir .. '\' -Filter \'*.wav\' | Where-Object {$_.Name -like \'*' .. random_suffix .. '*\'} | Select-Object -First 1 -ExpandProperty FullName"')
-            if handle then
-                local result = handle:read("*a"):gsub("^%s+", ""):gsub("%s+$", "")
-                handle:close()
-                if result and result ~= "" then
-                    log_success("Found file using PowerShell: " .. result)
-                    filename = result
-                    
-                    local final_check = io.open(filename, "r")
-                    if final_check then
-                        final_check:close()
-                        log_success("File accessible with PowerShell path: " .. filename)
-                    else
-                        return nil, "File found but still cannot access: " .. filename
-                    end
-                else
-                    return nil, "Could not find any matching audio file"
-                end
-            else
-                return nil, "Could not find any matching audio file"
-            end
-            
-            log_info("Checking what files actually exist in the directory...")
-            local project_dir = get_project_directory()
-            
             if is_windows() then
-                local handle = run_command_silent('dir /b "' .. project_dir .. '\\*Pantera*"')
+                log_info("Trying PowerShell to get exact filename...")
+                local handle = run_command_silent('powershell -Command "Get-ChildItem -Path \'' .. project_dir .. '\' -Filter \'*.wav\' | Where-Object {$_.Name -like \'*' .. random_suffix .. '*\'} | Select-Object -First 1 -ExpandProperty FullName"')
                 if handle then
-                    local files = handle:read("*a")
+                    local result = handle:read("*a"):gsub("^%s+", ""):gsub("%s+$", "")
                     handle:close()
-                    log_info("Files matching 'Pantera' in directory:")
-                    for file in files:gmatch("[^\r\n]+") do
-                        reaper.ShowConsoleMsg("  " .. file .. "\n")
-                    end
-                end
-                
-                local handle2 = run_command_silent('dir /b "' .. project_dir .. '\\*.wav"')
-                if handle2 then
-                    local files = handle2:read("*a")
-                    handle2:close()
-                    log_info("All WAV files in directory:")
-                    for file in files:gmatch("[^\r\n]+") do
-                        reaper.ShowConsoleMsg("  " .. file .. "\n")
-                    end
-                end
-            else
-                local handle = io.popen('ls -la "' .. project_dir .. '"/*Pantera* 2>/dev/null')
-                if handle then
-                    local files = handle:read("*a")
-                    handle:close()
-                    log_info("Files matching 'Pantera' in directory:")
-                    reaper.ShowConsoleMsg(files)
-                end
-                
-                local handle2 = io.popen('ls -la "' .. project_dir .. '"/*.wav 2>/dev/null')
-                if handle2 then
-                    local files = handle2:read("*a")
-                    handle:close()
-                    log_info("All WAV files in directory:")
-                    reaper.ShowConsoleMsg(files)
-                end
-            end
-            
-            log_info("Checking for .orig.wav file as fallback...")
-            local orig_filename = filename:gsub("%.wav$", ".orig.wav")
-            local orig_file_exists = io.open(orig_filename, "r")
-            if orig_file_exists then
-                orig_file_exists:close()
-                log_success("Found .orig.wav file, using that instead: " .. orig_filename)
-                filename = orig_filename
-            else
-                log_info("Trying to find file with similar name...")
-                
-                local project_dir = get_project_directory()
-                local base_name = filename:match("([^\\/]+)%.wav$")
-                if base_name then
-                    base_name = base_name:gsub("[%p%s]", ".")
-                    log_info("Searching for files matching pattern: " .. base_name)
-                    
-                    if is_windows() then
-                        local handle = run_command_silent('dir /b "' .. project_dir .. '\\*.wav"')
-                        if handle then
-                            local files = handle:read("*a")
-                            handle:close()
-                            
-                            for file in files:gmatch("[^\r\n]+") do
-                                if file:match("Pantera") and file:match("Power Metal") and file:match("FULL ALBUM") and file:match("_final%.wav$") then
-                                    local found_file = project_dir .. "\\" .. file
-                                    log_success("Found matching final file: " .. found_file)
-                                    filename = found_file
-                                    break
-                                end
-                            end
-                            
-                            if not filename then
-                                for file in files:gmatch("[^\r\n]+") do
-                                    if file:match("Pantera") and file:match("Power Metal") and file:match("FULL ALBUM") then
-                                        local found_file = project_dir .. "\\" .. file
-                                        log_success("Found matching file: " .. found_file)
-                                        filename = found_file
-                                        break
-                                    end
-                                end
-                            end
-                        end
+                    if result and result ~= "" and io.open(result, "r") then
+                        log_success("Found file using PowerShell: " .. result)
+                        filename = result
                     else
-                        local handle = io.popen('ls "' .. project_dir .. '"/*.wav 2>/dev/null')
-                        if handle then
-                            local files = handle:read("*a")
-                            handle:close()
-                            
-                            for file in files:gmatch("[^\r\n]+") do
-                                if file:match("Pantera") and file:match("Power Metal") and file:match("FULL ALBUM") and file:match("_final%.wav$") then
-                                    log_success("Found matching final file: " .. file)
-                                    filename = file
-                                    break
-                                end
-                            end
-                            
-                            if not filename then
-                                for file in files:gmatch("[^\r\n]+") do
-                                    if file:match("Pantera") and file:match("Power Metal") and file:match("FULL ALBUM") then
-                                        log_success("Found matching file: " .. file)
-                                        filename = file
-                                        break
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-                
-                if not filename then
-                    return nil, "Could not find any matching audio file"
-                end
-                
-                log_info("Attempting to access file: " .. filename)
-                
-                local file_check = io.open(filename, "r")
-                if not file_check then
-                    log_error("Cannot open file for reading, checking file attributes...")
-                    
-                    if is_windows() then
-                        local handle = run_command_silent('dir "' .. filename .. '"')
-                        if handle then
-                            local result = handle:read("*a")
-                            handle:close()
-                            log_info("File attributes:")
-                            reaper.ShowConsoleMsg(result)
-                        end
-                        
-                        local handle2 = run_command_silent('attrib "' .. filename .. '"')
-                        if handle2 then
-                            local result = handle2:read("*a")
-                            handle2:close()
-                            log_info("File permissions:")
-                            reaper.ShowConsoleMsg(result)
-                        end
-                    else
-                        local handle = io.popen('ls -la "' .. filename .. '" 2>/dev/null')
-                        if handle then
-                            local result = handle:read("*a")
-                            handle:close()
-                            log_info("File attributes:")
-                            reaper.ShowConsoleMsg(result)
-                        end
-                    end
-                    
-                    log_info("Trying alternative file access method...")
-                    local file_check2 = io.open(filename, "rb")
-                    if file_check2 then
-                        file_check2:close()
-                        log_success("File accessible with binary mode")
-                    else
-                        log_warning("File exists but cannot be accessed, trying to use most recent WAV file...")
-                        
-                        local project_dir = get_project_directory()
-                        if is_windows() then
-                            local handle = run_command_silent('dir /b /o-d "' .. project_dir .. '\\*.wav"')
-                            if handle then
-                                local files = handle:read("*a")
-                                handle:close()
-                                local lines = {}
-                                for line in files:gmatch("[^\r\n]+") do
-                                    if line:match("Pantera") then
-                                        table.insert(lines, line)
-                                    end
-                                end
-                                if #lines > 0 then
-                                    local fallback_file = project_dir .. "\\" .. lines[1]
-                                    log_info("Using fallback file: " .. fallback_file)
-                                    filename = fallback_file
-                                end
-                            end
-                        else
-                            local handle = io.popen('ls -t "' .. project_dir .. '"/*Pantera*.wav 2>/dev/null | head -1')
-                            if handle then
-                                local fallback_file = handle:read("*a"):gsub("^%s+", ""):gsub("%s+$", "")
-                                handle:close()
-                                if fallback_file and fallback_file ~= "" then
-                                    log_info("Using fallback file: " .. fallback_file)
-                                    filename = fallback_file
-                                end
-                            end
-                        end
-                        
-                        if not filename or not io.open(filename, "r") then
-                            return nil, "Found file but cannot access: " .. filename .. " (permission denied or file locked)"
-                        end
+                        return nil, "Could not find any accessible audio file"
                     end
                 else
-                    file_check:close()
-                    log_success("File accessible and readable")
+                    return nil, "Could not find any accessible audio file"
                 end
+            else
+                return nil, "Could not find any accessible audio file"
             end
         end
     end
@@ -697,43 +441,19 @@ function download_youtube_audio(url)
     return filename, nil
 end
 
+-- Reaper Integration Functions
 function add_audio_to_project(audio_file)
     if not audio_file or audio_file == "" then
         return false, "No audio file specified"
     end
     
-    log_info("Checking if file exists: " .. audio_file)
+    log_info("Importing audio file: " .. audio_file)
     
     local file_handle = io.open(audio_file, "r")
     if not file_handle then
-        log_error("File not found, checking directory contents...")
-        
-        local project_dir = get_project_directory()
-        local path_sep = get_path_separator()
-        
-        if is_windows() then
-            local handle = run_command_silent('dir /b "' .. project_dir .. '\\*.wav"')
-            if handle then
-                local files = handle:read("*a")
-                handle:close()
-                log_info("Available WAV files in directory:")
-                reaper.ShowConsoleMsg(files)
-            end
-        else
-            local handle = io.popen('ls -la "' .. project_dir .. '"/*.wav 2>/dev/null')
-            if handle then
-                local files = handle:read("*a")
-                handle:close()
-                log_info("Available WAV files in directory:")
-                reaper.ShowConsoleMsg(files)
-            end
-        end
-        
         return false, "Audio file not found: " .. audio_file
     end
     file_handle:close()
-    
-    log_info("Importing audio file: " .. audio_file)
     
     reaper.InsertTrackAtIndex(reaper.CountTracks(0), false)
     local track = reaper.GetTrack(0, reaper.CountTracks(0) - 1)
@@ -787,17 +507,12 @@ function add_audio_to_project(audio_file)
     
     reaper.UpdateArrange()
     reaper.TrackList_AdjustWindows(false)
-    
     reaper.Main_OnCommand(40047, 0)
-    
-    log_info("Audio import completed. Forcing peak rebuild...")
-    
-    local retval = reaper.UpdateTimeline()
-    log_info("Timeline update result: " .. tostring(retval))
     
     return true, "Audio added successfully to new track"
 end
 
+-- Main Application Entry Point
 function main()
     clear_console()
 
